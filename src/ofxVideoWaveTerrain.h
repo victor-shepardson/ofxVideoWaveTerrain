@@ -1,18 +1,12 @@
 //TODO:
 
-//add an aspect ratio parameter to compensate for non square images
-
-//properly set sample_rate, time_to_keep, audio_delay, frames_to_keep
-
 //consider different boundary conditions
 
-//how best to manage timing?
-
-//add polyphony
+//polyphony: deal with awkward treatment of per-agent parameters, mutex. nest agent class?
 
 //supply function to override to change agent behavior
 
-//it seems like reading every frame from video memory to RAM is not going to scale
+//it seems like reading every frame from video memory to RAM may not scale
 //alternative architecture:
 //manage the video volume on the GPU as a set of textures or a 3D texture
 //sample by drawing small sections to a 1x1 ofPixels object
@@ -21,32 +15,46 @@
 
 #include "ofMain.h"
 
+class ofxVideoWaveTerrainAgent{
+    typedef vector<ofPoint> curve;
+    //using curve = vector<ofPoint>;
+public:
+    ofxVideoWaveTerrainAgent(double rate, double jitter);
+    void draw(ofMutex &mutex, int x, int y, int w, int h);
+    void update(ofMutex &mutex);
+    ofPoint p,v;
+    double rate, jitter;
+private:
+    vector<curve> history[2];
+    int cur_hist;
+};
+
 class ofxVideoWaveTerrain{
     //add frames with any timestamp, query pixels at any time
 public:
-    int frames_to_keep, vertex_skip;
-    double time_to_keep, audio_delay; //in seconds
-    double agent_rate, agent_acc; //in Hz, Hz^2
-
 	ofxVideoWaveTerrain(int ftk, double ttk, int sr, double del);
     void insert_frame(ofFloatPixels &frame, double t);
     void insert_frame(ofFloatPixels &frame);
 	void audioOut(float *output, int bufferSize, int nChannels);
 	void draw(int x, int y, int w, int h);
 	double getElapsedTime();
+	void setMomentumTime(double);
+	void setAudioDelay(double);
+	void setAgentRate(double);
+	void setPathJitter(double);
+	void setFramesToKeep(int);
+	void setTimeToKeep(double);
+	void setAspectRatio(double);
 private:
-	int elapsed_samples;
-	double elapsed_time;
+    double time_to_keep, audio_delay, momentum_time, elapsed_time; //in seconds
+    double agent_rate; //in Hz
+    double path_jitter; //in image widths
+    double aspect_ratio;
     int sample_rate; //in Hz
+    int frames_to_keep;
     map<double,ofFloatPixels> frames;
     ofFloatColor getColor(double x, double y, double t);
     ofMutex mutex;
-    ofPoint agent_coords;
-    ofPoint agent_vel;
 
-    //use lists of points to store curves
-    //use lists of curves to manage wrapping around the torus
-    //switch between two such lists to minimize mutex lock time
-    vector<vector<ofPoint> > agent_hist[2];
-    int cur_hist; 
+    vector<ofxVideoWaveTerrainAgent> agents;
 };

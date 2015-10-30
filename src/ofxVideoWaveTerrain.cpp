@@ -4,17 +4,18 @@ ofxVideoWaveTerrain::ofxVideoWaveTerrain(int ftk=100, double ttk=10, int sr=4410
 	frames_to_keep = ftk;
 	time_to_keep = ttk;
 	agent_rate = 440.;
-    agent_acc = 1.;
 	sample_rate = sr;
 	elapsed_time = 0;
+	momentum_time = .0005;
+	path_jitter = .03;
 	audio_delay = del;
-    //vertex_skip = 8;
+    aspect_ratio = 1.;
 
-	for(int i=0;i<2;i++){
-        agent_hist[i] = vector<vector<ofPoint> >();
-        agent_hist[i].push_back(vector<ofPoint>());
-    }
-    cur_hist = 0;
+    agents.push_back(ofxVideoWaveTerrainAgent(agent_rate, path_jitter));
+    agents.push_back(ofxVideoWaveTerrainAgent(2.*agent_rate, path_jitter));
+    agents.push_back(ofxVideoWaveTerrainAgent(4.*agent_rate, path_jitter));
+    agents.push_back(ofxVideoWaveTerrainAgent(8.*agent_rate, path_jitter));
+    agents.push_back(ofxVideoWaveTerrainAgent(16.*agent_rate, path_jitter));
 }
 
 //call from the audio thread
@@ -23,69 +24,42 @@ void ofxVideoWaveTerrain::audioOut(float * output, int bufferSize, int nChannels
     for(int i=0; i<bufferSize; i++){
         mutex.lock();
         elapsed_time += (1./sample_rate); //need enough delay to stay behind latest frame of video
+        mutex.unlock();
         double t = elapsed_time - audio_delay;
-        if(t<0.){
+        if(t<0.) continue;
+
+         for(int c=0; c<nChannels; c++)
+            output[i*nChannels+c] = 0;
+
+        const int n_agents = agents.size();
+        for(int j=0; j<agents.size(); j++){
+            ofxVideoWaveTerrainAgent &agent = agents[j];
+
+            mutex.lock();
+            ofFloatColor color = getColor(agent.p.x, agent.p.y, t);
             mutex.unlock();
-            continue;
+
+            float h,s,b;
+            color.getHsb(h,s,b);
+            h*=6.28318530718;
+
+            ofPoint new_v = ofPoint(cos(h),sin(h),0)*agent.rate/sample_rate;
+            double eps = 1.-pow(2, -1./(sample_rate*momentum_time));
+            agent.v += eps*(new_v - agent.v);
+            agent.p += ofPoint(1./aspect_ratio, 1, 1)*agent.v;
+
+            agent.update(mutex);
+
+            for(int c=0; c<nChannels; c++)
+                output[i*nChannels+c] += sin(6.28318530718*agent.p[c])*(1./n_agents);
         }
-
-        ofFloatColor color = getColor(agent_coords.x, agent_coords.y, t);
-        mutex.unlock();
-
-        float h,s,b;
-        color.getHsb(h,s,b);
-        h*=6.28318530718;
-        //ofs = 2.*ofPoint(color.r-.5, color.g-.5, 0);
-        double eps = 1.-pow(.5, 3000./sample_rate);
-        agent_vel += eps*(s*ofPoint(cos(h),sin(h),0) - agent_vel);
-        agent_coords += agent_vel*agent_rate/sample_rate;
-
-        ofPoint pre_wrap = agent_coords;
-        agent_coords.x = ofWrap(agent_coords.x, 0, 1);
-        agent_coords.y = ofWrap(agent_coords.y, 0, 1);
-
-        ofPoint jit;
-        mutex.lock();
-        //if(!(i%vertex_skip) || agent_coords!=pre_wrap)
-        jit = .003*ofPoint(ofRandom(-1,1), ofRandom(-1,1));
-        agent_hist[cur_hist].rbegin()->push_back(pre_wrap+jit);
-        if(agent_coords!=pre_wrap){
-            agent_hist[cur_hist].push_back(vector<ofPoint>()); //start a new segment
-            agent_hist[cur_hist].rbegin()->push_back(agent_coords+jit); //push a new point onto the latest segment
-        }
-        mutex.unlock();
-        for(int c=0; c<nChannels; c++)
-            output[i*nChannels+c] = sin(6.28318530718*agent_coords[c]);
     }
 }
 
 //call from the opengl thread
 void ofxVideoWaveTerrain::draw(int x, int y, int w, int h){
-	//draw agent path as line segments
-
-    mutex.lock();
-    //swap agent path buffers
-    const vector<vector<ofPoint> > &hist = agent_hist[cur_hist];
-    cur_hist = 1-cur_hist;
-    agent_hist[cur_hist].clear();
-    agent_hist[cur_hist].push_back(vector<ofPoint>());
-    mutex.unlock();
-
-    ofPushStyle();
-    ofNoFill();
-    ofSetColor(ofFloatColor(1,1,1,1));
-    ofPushMatrix();
-    ofScale(w,h);//ofScale(1./w,1./h);
-    ofTranslate(x,y);
-    for(int i=0; i<hist.size(); i++){
-        if(hist[i].size()>1){
-            ofBeginShape();
-            ofVertices(hist[i]);
-            ofEndShape();
-        }
-    }
-    ofPopMatrix();
-    ofPopStyle();
+    for(int i=0; i<agents.size(); i++)
+        agents[i].draw(mutex,x,y,w,h);
 }
 
 void ofxVideoWaveTerrain::insert_frame(ofFloatPixels &frame, double t){
@@ -130,7 +104,7 @@ ofFloatColor ofxVideoWaveTerrain::getColor(double x, double y, double t){
     ofFloatPixels &after = it->second;
     double t_before = (--it)->first;
     ofFloatPixels &before = it->second;
-    
+
     //could do the below outside of mutex lock, if we trust that frames_to_keep and
     //time_to_keep are large enough not to delete the current frames
 
@@ -138,7 +112,7 @@ ofFloatColor ofxVideoWaveTerrain::getColor(double x, double y, double t){
 
     double mt =0;
     double denom = t_after - t_before;
-    if(denom>0) 
+    if(denom>0)
         mt = (t - t_before)/denom;
     int bw = before.getWidth();
     int bh = before.getHeight();
@@ -162,4 +136,106 @@ ofFloatColor ofxVideoWaveTerrain::getColor(double x, double y, double t){
 }
 double ofxVideoWaveTerrain::getElapsedTime(){
     return elapsed_time;
+}
+
+void ofxVideoWaveTerrain::setMomentumTime(double x){
+    mutex.lock();
+    momentum_time = x;
+    mutex.unlock();
+}
+void ofxVideoWaveTerrain::setAudioDelay(double x){
+    mutex.lock();
+    audio_delay = x;
+    mutex.unlock();
+}
+void ofxVideoWaveTerrain::setAgentRate(double x){
+    mutex.lock();
+    agent_rate = x;
+    for(int j=0; j<agents.size(); j++)
+        agents[j].rate = pow(2,j)*x;
+    mutex.unlock();
+}
+void ofxVideoWaveTerrain::setPathJitter(double x){
+    mutex.lock();
+    path_jitter = x;
+    for(int j=0; j<agents.size(); j++)
+        agents[j].jitter = x;
+    mutex.unlock();
+}
+void ofxVideoWaveTerrain::setFramesToKeep(int x){
+    mutex.lock();
+    frames_to_keep = x;
+    while(frames.size()>frames_to_keep)
+        frames.erase(frames.begin());
+    mutex.unlock();
+}
+void ofxVideoWaveTerrain::setTimeToKeep(double x){
+    mutex.lock();
+    time_to_keep = x;
+    while(frames.size()>0 && frames.begin()->first < getElapsedTime() - time_to_keep)
+        frames.erase(frames.begin());
+    mutex.unlock();
+}
+void ofxVideoWaveTerrain::setAspectRatio(double x){
+    mutex.lock();
+    aspect_ratio = x;
+    mutex.unlock();
+}
+
+ofxVideoWaveTerrainAgent::ofxVideoWaveTerrainAgent(double r, double j){
+    rate = r;
+    jitter = j;
+    for(int i=0;i<2;i++){
+        history[i] = vector<curve>();
+        history[i].push_back(curve());
+    }
+    cur_hist = 0;
+}
+void ofxVideoWaveTerrainAgent::draw(ofMutex &mutex, int x, int y, int w, int h){
+	//draw agent path as line segments
+
+    mutex.lock();
+    //swap agent path buffers
+    const vector<curve> &hist_to_draw = history[cur_hist];
+    cur_hist = 1-cur_hist;
+    history[cur_hist].clear();
+    history[cur_hist].push_back(curve());
+    mutex.unlock();
+
+    ofPushStyle();
+    ofNoFill();
+    ofSetColor(ofFloatColor(1,1,1,1));
+    ofPushMatrix();
+    ofScale(w,h);
+    ofTranslate(x,y);
+    for(int i=0; i<hist_to_draw.size(); i++){
+        if(hist_to_draw[i].size()>1){
+            ofBeginShape();
+            ofVertices(hist_to_draw[i]);
+            ofEndShape();
+        }
+    }
+    ofPopMatrix();
+    ofPopStyle();
+}
+
+void ofxVideoWaveTerrainAgent::update(ofMutex &mutex){
+    ofPoint jit;
+    double r = ofRandom(6.28318530718);
+    jit = jitter*ofPoint(cos(r), sin(r));
+
+    ofPoint pre_wrap = p;
+    p.x = ofWrap(p.x, 0, 1);
+    p.y = ofWrap(p.y, 0, 1);
+
+    mutex.lock();
+            //if(!(i%vertex_skip) || agent_coords!=pre_wrap)
+    history[cur_hist].rbegin()->push_back(pre_wrap+jit);
+    if(p!=pre_wrap){
+        history[cur_hist].push_back(curve()); //start a new segment
+        history[cur_hist].rbegin()->push_back(p+jit); //push a new point onto the latest segment
+    }
+    mutex.unlock();
+
+
 }
