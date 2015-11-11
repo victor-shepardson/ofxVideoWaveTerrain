@@ -1,12 +1,12 @@
 //TODO:
 
+//currently OF_BLENDMODE_ADD doesn't work right with negative colors
+
 //need to test interpolation
 
 //currently jitter introduces noise to audio-- maybe best to eliminate jitter and rely on momentum
 
 //consider different boundary conditions
-
-//polyphony: deal with awkward treatment of per-agent parameters, mutex. nest agent class?
 
 //supply function to override to change agent behavior
 
@@ -32,11 +32,12 @@ class ofxVideoWaveTerrainAgent{
     typedef vector<ofPoint> curve;
     //using curve = vector<ofPoint>;
 public:
-    ofxVideoWaveTerrainAgent(double rate, double jitter, double momentum_time);
+    ofxVideoWaveTerrainAgent(double rate, double jitter, double momentum_time, ofFloatColor c);
     void draw(ofMutex &mutex, int x, int y, int w, int h);
     void update(ofMutex &mutex, ofFloatColor color, double sample_rate, double aspect_ratio);
     ofPoint p,v;
     double rate, jitter, momentum_time;
+    ofFloatColor color;
 private:
     vector<curve> history[2];
     int cur_hist;

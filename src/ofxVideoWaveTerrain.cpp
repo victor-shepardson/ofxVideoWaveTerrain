@@ -12,11 +12,12 @@ ofxVideoWaveTerrain::ofxVideoWaveTerrain(int ftk=100, double ttk=10, int sr=4410
 	double momentum_time = 0;
 	double path_jitter = 0;
 
-    agents.push_back(ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time));
-    agents.push_back(ofxVideoWaveTerrainAgent(2.*base_agent_rate, path_jitter, momentum_time));
-    agents.push_back(ofxVideoWaveTerrainAgent(4.*base_agent_rate, path_jitter, momentum_time));
-    agents.push_back(ofxVideoWaveTerrainAgent(8.*base_agent_rate, path_jitter, momentum_time));
-    agents.push_back(ofxVideoWaveTerrainAgent(16.*base_agent_rate, path_jitter, momentum_time));
+    agents.push_back(ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, ofFloatColor(-1,1,0)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,1)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,-1,1)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,2)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(1,0,-1)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,3)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(-1,0,1)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,4)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(1,-1,0)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,5)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,1,-1)));
 }
 
 //call from the audio thread
@@ -180,10 +181,11 @@ void ofxVideoWaveTerrain::setAspectRatio(double x){
     mutex.unlock();
 }
 
-ofxVideoWaveTerrainAgent::ofxVideoWaveTerrainAgent(double r, double j, double mt){
+ofxVideoWaveTerrainAgent::ofxVideoWaveTerrainAgent(double r, double j, double mt, ofFloatColor c = ofFloatColor(1,1,1)){
     rate = r;
     jitter = j;
     momentum_time = mt;
+    color=c;
     for(int i=0;i<2;i++){
         history[i] = vector<curve>();
         history[i].push_back(curve());
@@ -207,7 +209,8 @@ void ofxVideoWaveTerrainAgent::draw(ofMutex &mutex, int x, int y, int w, int h){
 
     ofPushStyle();
     ofNoFill();
-    ofSetColor(ofFloatColor(1,1,1,1));
+    ofSetColor(color);
+    ofEnableBlendMode(OF_BLENDMODE_ADD);
     ofPushMatrix();
     ofScale(w,h);
     ofTranslate(x,y);
