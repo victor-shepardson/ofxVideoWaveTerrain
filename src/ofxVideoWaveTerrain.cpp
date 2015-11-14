@@ -12,12 +12,12 @@ ofxVideoWaveTerrain::ofxVideoWaveTerrain(int ftk=100, double ttk=10, int sr=4410
 	double momentum_time = 0;
 	double path_jitter = 0;
 
-    agents.push_back(ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, ofFloatColor(-1,1,0)));
-    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,1)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,-1,1)));
-    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,2)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(1,0,-1)));
-    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,3)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(-1,0,1)));
-    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,4)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(1,-1,0)));
-    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,5)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,1,-1)));
+    agents.push_back(ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,1,0)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,1)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,0,1)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,2)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(1,0,0)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,3)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(.7,0,.7)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,4)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(.7,.7,0)));
+    agents.push_back(ofxVideoWaveTerrainAgent(pow(1.5,5)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,.7,.7)));
 }
 
 //call from the audio thread
@@ -30,8 +30,10 @@ void ofxVideoWaveTerrain::audioOut(float * output, int bufferSize, int nChannels
         double t = elapsed_time - audio_delay;
         if(t<0.) continue;
 
-         for(int c=0; c<nChannels; c++)
-            output[i*nChannels+c] = 0;
+        if(output){
+            for(int c=0; c<nChannels; c++)
+                output[i*nChannels+c] = 0;
+        }
 
         const int n_agents = agents.size();
         for(int j=0; j<agents.size(); j++){
@@ -43,9 +45,14 @@ void ofxVideoWaveTerrain::audioOut(float * output, int bufferSize, int nChannels
 
             agent.update(mutex, color, sample_rate, aspect_ratio);
 
-            if(nChannels>2) cout<<"ofxVideoWaveTerrain error: more than 2 audio channels not supported"<<endl;
-            for(int c=0; c<nChannels; c++)
-                output[i*nChannels+c] += sin(6.28318530718*agent.p[c])*(1./n_agents);
+            if(nChannels>2){
+                cout<<"ofxVideoWaveTerrain error: more than 2 audio channels not supported"<<endl;
+                nChannels = 2;
+            }
+            if(output){
+                for(int c=0; c<nChannels; c++)
+                    output[i*nChannels+c] += sin(6.28318530718*agent.p[c])*(1./n_agents);
+            }
         }
     }
 }
