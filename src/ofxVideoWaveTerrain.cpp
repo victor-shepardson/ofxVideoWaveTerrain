@@ -142,7 +142,12 @@ ofFloatColor ofxVideoWaveTerrain::getColor(double x, double y, double t){
 double ofxVideoWaveTerrain::getElapsedTime(){
     return elapsed_time;
 }
-
+void ofxVideoWaveTerrain::scramble(){
+    mutex.lock();
+    for(int i=0; i<agents.size(); i++)
+        agents[i].init();
+    mutex.unlock();
+}
 void ofxVideoWaveTerrain::setMomentumTime(double x){
     mutex.lock();
     for(int j=0; j<agents.size(); j++)
@@ -193,12 +198,17 @@ ofxVideoWaveTerrainAgent::ofxVideoWaveTerrainAgent(double r, double j, double mt
     jitter = j;
     momentum_time = mt;
     color=c;
+    init();
+}
+void ofxVideoWaveTerrainAgent::init(){
+    p = ofPoint(ofRandom(0,1), ofRandom(0,1), 0);
+    v = ofPoint(0,0,0);
     for(int i=0;i<2;i++){
         history[i] = vector<curve>();
         history[i].push_back(curve());
     }
     cur_hist = 0;
-    history[0][0].push_back(ofPoint());
+    history[0][0].push_back(p);
 }
 void ofxVideoWaveTerrainAgent::draw(ofMutex &mutex, int x, int y, int w, int h){
 	//draw agent path as line segments
@@ -243,17 +253,22 @@ inline void ofxVideoWaveTerrainAgent::update(ofMutex &mutex, ofFloatColor color,
         jit = jitter*ofPoint(cos(r), sin(r));
     }
 
-    ofPoint new_v = s*b*ofPoint(cos(h),sin(h),0)*rate/sample_rate;
+/*    ofPoint new_v = s*b*ofPoint(cos(h),sin(h),0)*rate/sample_rate;
     double eps = 1;
     if(momentum_time>0)
         eps = 1.-pow(2, -1./(sample_rate*momentum_time));
     v += eps*(new_v - v);
     p += ofPoint(1., aspect_ratio, 0)*v + jit;
-
-    //ofPoint pre_wrap = p;
-    /*p.x = ofWrap(p.x, 0, 1);
-    p.y = ofWrap(p.y, 0, 1);
 */
+
+    ofPoint new_v = ofPoint(cos(h),sin(h),0)*rate/sample_rate;
+    double eps = 1;
+    double mt = momentum_time*(1-s);
+    if(mt>0)
+        eps = 1.-pow(2, -1./(sample_rate*mt));
+    v += eps*(new_v - v);
+    p += ofPoint(1., aspect_ratio, 0)*v + jit;
+
     ofPoint wrap;
     if(p.x>=1) wrap.x = -int(p.x);
     if(p.x<0) wrap.x = int(1-p.x);

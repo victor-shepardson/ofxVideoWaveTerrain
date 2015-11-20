@@ -34,6 +34,7 @@ class ofxVideoWaveTerrainAgent{
 public:
     ofxVideoWaveTerrainAgent(double rate, double jitter, double momentum_time, ofFloatColor c);
     void draw(ofMutex &mutex, int x, int y, int w, int h);
+    void init();
     void update(ofMutex &mutex, ofFloatColor color, double sample_rate, double aspect_ratio);
     ofPoint p,v;
     double rate, jitter, momentum_time;
@@ -59,6 +60,7 @@ public:
 	void setFramesToKeep(int);
 	void setTimeToKeep(double);
 	void setAspectRatio(double);
+	void scramble();
 private:
     double time_to_keep, audio_delay, elapsed_time; //in seconds
     double base_agent_rate; //in Hz
