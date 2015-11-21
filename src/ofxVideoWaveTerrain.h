@@ -33,22 +33,41 @@ class ofxVideoWaveTerrainAgent{
     //using curve = vector<ofPoint>;
 public:
     ofxVideoWaveTerrainAgent(double rate, double jitter, double momentum_time, ofFloatColor c);
-    void draw(ofMutex &mutex, int x, int y, int w, int h);
+    void draw(int x, int y, int w, int h);
     void init();
-    void update(ofMutex &mutex, ofFloatColor color, double sample_rate, double aspect_ratio);
+    void update(ofFloatColor color, double sample_rate, double aspect_ratio);
+    void setJitter(double);
+    void setRate(double);
+    void setMomentumTime(double);
     ofPoint p,v;
-    double rate, jitter, momentum_time;
     ofFloatColor color;
 private:
+    double rate, jitter, momentum_time;
     vector<curve> history[2];
     int cur_hist;
+    ofMutex mutex; //agents are accessed from the video and audio threads
+};
+
+class ofxIrregularVideoVolume{
+public:
+    ofxIrregularVideoVolume(int ftk, double ar);
+    void insert_frame(ofFloatPixels &frame, double t);
+    ofFloatColor getColor(double x, double y, double t);
+    void setFramesToKeep(int);
+	void setAspectRatio(double);
+	int getFramesToKeep();
+	double getAspectRatio();
+private:
+    double aspect_ratio;
+    int frames_to_keep;
+    map<double,ofFloatPixels> frames;
+    ofMutex mutex; //make the volume thread safe
 };
 
 class ofxVideoWaveTerrain{
     //add frames with any timestamp, query pixels at any time
 public:
-	ofxVideoWaveTerrain(int ftk, double ttk, int sr, double del);
-    void insert_frame(ofFloatPixels &frame, double t);
+	ofxVideoWaveTerrain(int ftk, int sr, double del);
     void insert_frame(ofFloatPixels &frame);
 	void audioOut(float *output, int bufferSize, int nChannels);
 	void draw(int x, int y, int w, int h);
@@ -57,19 +76,13 @@ public:
 	void setAudioDelay(double);
 	void setAgentRate(double);
 	void setPathJitter(double);
-	void setFramesToKeep(int);
-	void setTimeToKeep(double);
-	void setAspectRatio(double);
 	void scramble();
+	ofxIrregularVideoVolume* getVideoVolume();
 private:
-    double time_to_keep, audio_delay, elapsed_time; //in seconds
+    double audio_delay, elapsed_time; //in seconds
     double base_agent_rate; //in Hz
-    double aspect_ratio;
     int sample_rate; //in Hz
-    int frames_to_keep;
-    map<double,ofFloatPixels> frames;
-    ofFloatColor getColor(double x, double y, double t);
-    ofMutex mutex;
-
-    vector<ofxVideoWaveTerrainAgent> agents;
+    vector<ofxVideoWaveTerrainAgent*> agents;
+    ofxIrregularVideoVolume *ivv;
+    ofMutex mutex; //needed to make elapsed_time thread safe
 };
