@@ -1,6 +1,7 @@
 //TODO:
 
 //currently OF_BLENDMODE_ADD doesn't work right with negative colors
+// is oF clamping negative colors somewhere?
 
 //need to test interpolation
 
@@ -82,6 +83,7 @@ private:
     double audio_delay, elapsed_time; //in seconds
     double base_agent_rate; //in Hz
     int sample_rate; //in Hz
+    double agent_rate_scale;
     vector<ofxVideoWaveTerrainAgent*> agents;
     ofxIrregularVideoVolume *ivv;
     ofMutex mutex; //needed to make elapsed_time thread safe
