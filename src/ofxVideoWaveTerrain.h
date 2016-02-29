@@ -28,12 +28,25 @@
 #pragma once
 
 #include "ofMain.h"
+#include <array>
+
+template <unsigned int C, unsigned int L>
+class ofxDelayLine{
+public:
+    ofxDelayLine();
+    void insert(array<double, C> v);
+    double get(unsigned int t, unsigned int c);
+    array<double, C> get(unsigned int t);
+private:
+    unsigned int head;
+    array< array<double, C>, L > d;
+};
 
 class ofxVideoWaveTerrainAgent{
     typedef vector<ofPoint> curve;
     //using curve = vector<ofPoint>;
 public:
-    ofxVideoWaveTerrainAgent(double rate, double jitter, double momentum_time, ofFloatColor c);
+    ofxVideoWaveTerrainAgent(double rate, double jitter, double momentum_time, double rot, ofFloatColor c, ofBlendMode b);
     void draw(int x, int y, int w, int h);
     void init();
     void update(ofFloatColor color, double sample_rate, double aspect_ratio);
@@ -43,8 +56,10 @@ public:
     ofPoint p,v;
     ofFloatColor color;
 private:
-    double rate, jitter, momentum_time;
-    vector<curve> history[2];
+    double rate, jitter, momentum_time, rotation;
+    ofBlendMode blend_mode;
+    vector<curve> history[2]; //two buffers of curves: one to write to in audio thread, one to read from in video thread
+    ofxDelayLine<2, 48000> v_history;
     int cur_hist;
     ofMutex mutex; //agents are accessed from the video and audio threads
 };

@@ -1,5 +1,26 @@
 #include "ofxVideoWaveTerrain.h"
 
+template<unsigned int C, unsigned int L>
+ofxDelayLine<C, L>::ofxDelayLine(){
+    head = 0;
+}
+
+template<unsigned int C, unsigned int L>
+void ofxDelayLine<C, L>::insert(array<double, C> v){
+    head = (head+1)%L;
+    d[head] = v;
+}
+
+template<unsigned int C, unsigned int L>
+double ofxDelayLine<C, L>::get(unsigned int t, unsigned int c){
+    return d[t%L][c%C];
+}
+
+template<unsigned int C, unsigned int L>
+array<double, C> ofxDelayLine<C, L>::get(unsigned int t){
+    return d[t%L];
+}
+
 ofxVideoWaveTerrain::ofxVideoWaveTerrain(int ftk=100, int sr=44100, double del=.2){
 
     ivv = new ofxIrregularVideoVolume(ftk, 1);
@@ -9,21 +30,33 @@ ofxVideoWaveTerrain::ofxVideoWaveTerrain(int ftk=100, int sr=44100, double del=.
 	elapsed_time = 0;
 	audio_delay = del;
 
-	agent_rate_scale = 1.5;
+	agent_rate_scale = 1;//1.5;
 
 	double momentum_time = 0;
 	double path_jitter = 0;
 
-    agents.push_back(new ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,1,0)));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,1)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,0,1)));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,2)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(1,0,0)));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,3)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(.7,0,.7)));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,4)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(.7,.7,0)));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,5)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,.7,.7)));
+    agents.push_back(new ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, 0, ofFloatColor(.5,1,1), OF_BLENDMODE_MULTIPLY));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,1)*base_agent_rate, path_jitter, momentum_time, .03, ofFloatColor(.25,0,.25), OF_BLENDMODE_SCREEN));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,2)*base_agent_rate, path_jitter, momentum_time, .02, ofFloatColor(1,1,.5), OF_BLENDMODE_MULTIPLY));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,3)*base_agent_rate, path_jitter, momentum_time, .05, ofFloatColor(0,.25,.25), OF_BLENDMODE_SCREEN));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,4)*base_agent_rate, path_jitter, momentum_time, .04, ofFloatColor(.25,.25,0), OF_BLENDMODE_SCREEN));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,5)*base_agent_rate, path_jitter, momentum_time, .01, ofFloatColor(1,.5,1), OF_BLENDMODE_MULTIPLY));
+
+
+//    agents.push_back(new ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,.5,0)));
+//    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,1)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,0,.5)));
+//    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,2)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(.5,0,0)));
+//    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,3)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(.35,0,.35)));
+//    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,4)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(.35,.35,0)));
+//    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,5)*base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,.35,.35)));
 }
 
 //call from the audio thread
 void ofxVideoWaveTerrain::audioOut(float * output, int bufferSize, int nChannels){
+    if(nChannels>2){
+        cout<<"ofxVideoWaveTerrain error: more than 2 audio channels not supported"<<endl;
+        nChannels = 2;
+    }
     //trace the agent's path sample by sample and use x and y to index a sinusoidal wave table
     for(int i=0; i<bufferSize; i++){
         mutex.lock();
@@ -45,17 +78,13 @@ void ofxVideoWaveTerrain::audioOut(float * output, int bufferSize, int nChannels
 
             agent.update(color, sample_rate, ivv->getAspectRatio());
 
-            if(nChannels>2){
-                cout<<"ofxVideoWaveTerrain error: more than 2 audio channels not supported"<<endl;
-                nChannels = 2;
-            }
             if(output){
                 for(int c=0; c<nChannels; c++)
                     output[i*nChannels+c] +=  sin(6.28318530718*agent.p[c]) *
                         ( agent.color.r*color.r
                         + agent.color.g*color.g
                         + agent.color.b*color.b
-                        )/(n_agents*3);
+                        )/(n_agents*3*4);
             }
         }
     }
@@ -99,16 +128,18 @@ void ofxVideoWaveTerrain::setPathJitter(double x){
         agents[j]->setJitter(x);
 }
 
-ofxVideoWaveTerrainAgent::ofxVideoWaveTerrainAgent(double r, double j, double mt, ofFloatColor c = ofFloatColor(1,1,1)){
+ofxVideoWaveTerrainAgent::ofxVideoWaveTerrainAgent(double r, double j, double mt, double rot = 0, ofFloatColor c = ofFloatColor(1,1,1), ofBlendMode b = OF_BLENDMODE_DISABLED){
     rate = r;
     jitter = j;
     momentum_time = mt;
+    rotation = rot;
     color=c;
+    blend_mode = b;
     init();
 }
 void ofxVideoWaveTerrainAgent::init(){
     p = ofPoint(ofRandom(0,1), ofRandom(0,1), 0);
-    v = ofPoint(0,0,0);
+    v = rate*ofPoint(ofRandom(-1,1), ofRandom(-1,1), 0);
     mutex.lock();
     for(int i=0;i<2;i++){
         history[i] = vector<curve>();
@@ -117,6 +148,7 @@ void ofxVideoWaveTerrainAgent::init(){
     cur_hist = 0;
     history[0][0].push_back(p);
     mutex.unlock();
+
 }
 void ofxVideoWaveTerrainAgent::draw(int x, int y, int w, int h){
 	//draw agent path as line segments
@@ -135,15 +167,17 @@ void ofxVideoWaveTerrainAgent::draw(int x, int y, int w, int h){
     ofPushStyle();
     ofNoFill();
     ofSetColor(color);
-    ofEnableBlendMode(OF_BLENDMODE_ADD);
+    ofEnableBlendMode(blend_mode);
+    //ofSetLineWidth(32);
     ofPushMatrix();
     ofScale(w,h);
     ofTranslate(x,y);
     for(int i=0; i<hist_to_draw.size(); i++){
         if(hist_to_draw[i].size()>1){
-            ofBeginShape();
-            ofVertices(hist_to_draw[i]);
-            ofEndShape();
+            ofMesh(OF_PRIMITIVE_LINE_STRIP, hist_to_draw[i]).draw();
+            //ofBeginShape();
+            //ofVertices(hist_to_draw[i]);
+            //ofEndShape();
         }
     }
     ofPopMatrix();
@@ -153,7 +187,7 @@ void ofxVideoWaveTerrainAgent::draw(int x, int y, int w, int h){
 inline void ofxVideoWaveTerrainAgent::update(ofFloatColor color, double sample_rate, double aspect_ratio){
     float h,s,b;
     color.getHsb(h,s,b);
-    h*=6.28318530718;
+    h = (h+rotation)*6.28318530718;
 
     ofPoint jit;
     if(jitter>0){
@@ -161,11 +195,33 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor color, double sample_r
         jit = jitter*ofPoint(cos(r), sin(r));
     }
 
-    ofPoint new_v = s*b*ofPoint(cos(h),sin(h),0)*rate/sample_rate;
+/*    ofPoint new_v = s*b*ofPoint(cos(h),sin(h),0)*rate/sample_rate;
     double eps = 1;
     if(momentum_time>0)
         eps = 1.-pow(2, -1./(sample_rate*momentum_time));
     v += eps*(new_v - v);
+*/
+
+    ofPoint new_v;
+    ofPoint m(cos(h), sin(h));
+    new_v.x = m.x*v.x - m.y*v.y;
+    new_v.y = m.x*v.y + m.y*v.x;
+
+    //v = new_v;
+    double eps = 1;
+    if(momentum_time>0)
+        eps = 1.-pow(2, -1./(sample_rate*momentum_time));
+    v += eps*(new_v - v);
+
+
+    array<double, 2> h_v = v_history.get(480);
+    v += ofPoint(h_v[0], h_v[1]);
+
+    v *= rate/(sample_rate*v.length()+.0001);
+
+    h_v[0] = v.x; h_v[1] = v.y;
+    v_history.insert(h_v);
+
     p += ofPoint(1., aspect_ratio, 0)*v + jit;
 
 /*
@@ -175,8 +231,8 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor color, double sample_r
     if(mt>0)
         eps = 1.-pow(2, -1./(sample_rate*mt));
 */
-    v += eps*(new_v - v);
-    p += ofPoint(1., aspect_ratio, 0)*v + jit;
+   // v += eps*(new_v - v);
+   // p += ofPoint(1., aspect_ratio, 0)*v + jit;
 
     ofPoint wrap;
     if(p.x>=1) wrap.x = -int(p.x);
@@ -252,7 +308,7 @@ ofFloatColor ofxIrregularVideoVolume::getColor(double x, double y, double t){
     double t_earliest = frames.begin()->first;
     double t_latest = frames.rbegin()->first;
     if(t>t_latest){
-        cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is after latest frame at "<< t_latest <<endl;
+        //cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is after latest frame at "<< t_latest <<endl;
         it = frames.end();
     }
     else{
