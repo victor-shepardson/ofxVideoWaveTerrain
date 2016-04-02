@@ -42,12 +42,12 @@ ofxVideoWaveTerrain::ofxVideoWaveTerrain(int ftk=48, int sr=48000, double del=.2
 	double base_agent_rate = 30.;
 	double comb_freq = 200.;
 
-    agents.push_back(new ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, comb_freq, 0, ofFloatColor(.99,.99,.75), OF_BLENDMODE_MULTIPLY));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,1)*base_agent_rate, path_jitter, momentum_time, comb_freq, .03, ofFloatColor(.25,.01,.25), OF_BLENDMODE_SCREEN));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,2)*base_agent_rate, path_jitter, momentum_time, comb_freq, .02, ofFloatColor(.99,.75,.99), OF_BLENDMODE_MULTIPLY));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,3)*base_agent_rate, path_jitter, momentum_time, comb_freq, .05, ofFloatColor(.01,.25,.25), OF_BLENDMODE_SCREEN));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,4)*base_agent_rate, path_jitter, momentum_time, comb_freq, .04, ofFloatColor(.25,.25,.01), OF_BLENDMODE_SCREEN));
-    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,5)*base_agent_rate, path_jitter, momentum_time, comb_freq, .01, ofFloatColor(.75,.99,.99), OF_BLENDMODE_MULTIPLY));
+    agents.push_back(new ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, comb_freq, 0, ofFloatColor(.9,.99,.75), OF_BLENDMODE_MULTIPLY));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,1)*base_agent_rate, path_jitter, momentum_time, comb_freq, .03, ofFloatColor(.25,.001,.05), OF_BLENDMODE_SCREEN));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,2)*base_agent_rate, path_jitter, momentum_time, comb_freq, .02, ofFloatColor(.99,.75,.9), OF_BLENDMODE_MULTIPLY));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,3)*base_agent_rate, path_jitter, momentum_time, comb_freq, .05, ofFloatColor(.001,.05,.25), OF_BLENDMODE_SCREEN));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,4)*base_agent_rate, path_jitter, momentum_time, comb_freq, .04, ofFloatColor(.05,.25,.001), OF_BLENDMODE_SCREEN));
+    agents.push_back(new ofxVideoWaveTerrainAgent(pow(agent_rate_scale,5)*base_agent_rate, path_jitter, momentum_time, comb_freq, .01, ofFloatColor(.75,.9,.99), OF_BLENDMODE_MULTIPLY));
 
 
 //    agents.push_back(new ofxVideoWaveTerrainAgent(base_agent_rate, path_jitter, momentum_time, ofFloatColor(0,.5,0)));
@@ -198,8 +198,9 @@ void ofxVideoWaveTerrainAgent::draw(int x, int y, int w, int h){
 }
 
 inline void ofxVideoWaveTerrainAgent::update(ofFloatColor color, double sample_rate, double aspect_ratio){
-    float h,s,b;
-    color.getHsb(h,s,b);
+    float h;//,s,b;
+    //color.getHsb(h,s,b);
+    h = color.getHueAngle()/360.;
     h = (h+rotation)*6.28318530718;
 
     ofPoint jit;
@@ -217,33 +218,43 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor color, double sample_r
 
     ofPoint new_v;
     ofPoint m(cos(h), sin(h));
-    new_v.x = m.x*v.x - m.y*v.y;
-    new_v.y = m.x*v.y + m.y*v.x;
+    //new_v.x = m.x*v.x - m.y*v.y;
+    //new_v.y = m.x*v.y + m.y*v.x;
+    new_v = m;
 
     array<double, 2> h_v;
+    array<double, 2> h_p;
 
     if(comb_freq > 0){
         int comb_samps = sample_rate/comb_freq;
         h_v = v_history.get(comb_samps);
+        h_p = p_history.get(comb_samps);
         //new_v += ofPoint(h_v[0], h_v[1]);
-        new_v += ofPoint(ofWrap(p.x-h_v[0],-.5,.5), ofWrap(p.y-h_v[1],-.5,.5)); //flee past position with strength prop. to distance
+        ofPoint toward_old_p = ofPoint(ofWrap(p.x-h_p[0],-.5,.5), ofWrap(p.y-h_p[1],-.5,.5));
+        toward_old_p /= toward_old_p.length() + .0001;
+        ofPoint old_v = ofPoint(h_v[0], h_v[1]);
+        new_v += old_v - toward_old_p; //flee past position with strength prop. to distance
     }
-    //v = new_v;
+
+    new_v /= (new_v.length()+.0001);
 
     double eps = 1;
     if(momentum_time>0)
         eps = 1.-pow(2, -1./(sample_rate*momentum_time*.001));
     v += eps*(new_v - v);
 
+
     //v = ofPoint(h_v[0], h_v[1]) + eps*new_v;
 
     v /= (v.length()+.0001);
 
+    p += (v*(rate/sample_rate) + jit)*ofPoint(1., aspect_ratio, 0);
+
     h_v[0] = p.x; h_v[1] = p.y;
-    //h_v[0] = v.x; h_v[1] = v.y;
     v_history.insert(h_v);
 
-    p += (v*(rate/sample_rate) + jit)*ofPoint(1., aspect_ratio, 0);
+    h_p[0] = p.x; h_p[1] = p.y;
+    p_history.insert(h_p);
 
     ofPoint wrap;
     if(p.x>=1) wrap.x = -int(p.x);

@@ -81,6 +81,7 @@ private:
     ofBlendMode blend_mode;
     vector<curve> history[2]; //two buffers of curves: one to write to in audio thread, one to read from in video thread
     ofxDelayLine<2, 48000> v_history;
+    ofxDelayLine<2, 48000> p_history;
     int cur_hist;
     ofMutex mutex; //agents are accessed from the video and audio threads
 };
