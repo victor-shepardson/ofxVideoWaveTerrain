@@ -1,5 +1,7 @@
 #include "ofxVideoWaveTerrain.h"
 
+#include <xmmintrin.h>
+
 template<unsigned int C, unsigned int L>
 ofxDelayLine<C, L>::ofxDelayLine(){
     head = 0;
@@ -28,6 +30,8 @@ ofxVideoWaveTerrain::~ofxVideoWaveTerrain(){
 }
 
 ofxVideoWaveTerrain::ofxVideoWaveTerrain(int ftk=48, int sr=48000, double del=.2){
+
+    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
 
     ivv = new ofxIrregularVideoVolume(ftk, 1);
 
@@ -104,7 +108,7 @@ void ofxVideoWaveTerrain::draw(int x, int y, int w, int h){
         agents[i]->draw(x,y,w,h);
 }
 
-void ofxVideoWaveTerrain::insert_frame(ofFloatPixels &frame){
+void ofxVideoWaveTerrain::insert_frame(ofFloatPixels *frame){
     ivv->insert_frame(frame, elapsed_time);
 }
 
@@ -230,10 +234,11 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor color, double sample_r
         h_v = v_history.get(comb_samps);
         h_p = p_history.get(comb_samps);
         //new_v += ofPoint(h_v[0], h_v[1]);
-        ofPoint toward_old_p = ofPoint(ofWrap(p.x-h_p[0],-.5,.5), ofWrap(p.y-h_p[1],-.5,.5));
+        ofPoint toward_old_p = ofPoint(ofWrap(h_p[0]-p.x,-.5,.5), ofWrap(h_p[1]-p.y,-.5,.5));
         toward_old_p /= toward_old_p.length() + .0001;
         ofPoint old_v = ofPoint(h_v[0], h_v[1]);
-        new_v += old_v - toward_old_p; //flee past position with strength prop. to distance
+        //approach old velocity, flee old position
+        new_v += .5*old_v - toward_old_p;
     }
 
     new_v /= (new_v.length()+.0001);
@@ -250,13 +255,13 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor color, double sample_r
 
     p += (v*(rate/sample_rate) + jit)*ofPoint(1., aspect_ratio, 0);
 
-    h_v[0] = p.x; h_v[1] = p.y;
+    h_v[0] = v.x; h_v[1] = v.y;
     v_history.insert(h_v);
 
     h_p[0] = p.x; h_p[1] = p.y;
     p_history.insert(h_p);
 
-    ofPoint wrap;
+    ofPoint wrap(0);
     if(p.x>=1) wrap.x = -int(p.x);
     if(p.x<0) wrap.x = int(1-p.x);
     if(p.y>=1) wrap.y = -int(p.y);
@@ -270,10 +275,10 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor color, double sample_r
     mutex.lock();
     vector<curve> &hist = history[cur_hist];
     curve &cur_curve = *(hist.rbegin());
-    ofPoint unwrapped = *(cur_curve.rbegin()) + wrap;
     cur_curve.push_back(pre_wrap);
-    if(p!=pre_wrap){
+    if(p!=pre_wrap){ //if wrapping around the torus occurred, start a new curve
         curve new_curve;
+        ofPoint unwrapped = *(cur_curve.rbegin()) + wrap;
         new_curve.push_back(unwrapped);
         new_curve.push_back(p);
         hist.push_back(new_curve); //start a new segment; note that this invalidates reference cur_curve
@@ -307,18 +312,26 @@ ofxIrregularVideoVolume::ofxIrregularVideoVolume(int ftk, double ar){
     aspect_ratio = ar;
 }
 
-void ofxIrregularVideoVolume::insert_frame(ofFloatPixels &frame, double t){
+void ofxIrregularVideoVolume::insert_frame(ofFloatPixels *frame, double t){
     //insert a new frame to the irregularly sampled video volume
     //frames must be regularly sampled ofPixels objects but can be any resolution
     //and placed irregularly in time
 
     //cout<<"agent coords: ("<<agent_coords.x<<", "<<agent_coords.y<<")"<<endl;
 
+    if(!frame->isAllocated() || frame->getWidth() <= 0 || frame->getHeight() <= 0){
+        cout<<"ofxVideoWaveTerrain warning: attempt insert frame with bad size "
+            <<frame->getWidth()<<" by "<<frame->getHeight()<<endl;
+            return;
+    }
+
     mutex.lock();
     //insert with hint that this frame goes at the end
-    frames.insert(frames.end(), pair<double, ofFloatPixels>(t,frame));
-    if(frames.size()>frames_to_keep)
+    frames.insert(frames.end(), pair<double, ofFloatPixels*>(t,frame));
+    if(frames.size()>frames_to_keep){
+        delete frames.begin()->second;
         frames.erase(frames.begin());
+    }
     mutex.unlock();
     //cout<< "earliest: "<<frames.begin()->first<<", latest: "<<frames.end()->first<<endl;
 }
@@ -327,16 +340,18 @@ ofFloatColor ofxIrregularVideoVolume::getColor(double x, double y, double t){
     //trilinear interpolation of the video volume at x,y,t
     // x,y in normalized coordinates (0-1), t in seconds
     mutex.lock();
-    if(frames.size()<2){
+     if(frames.size()<2){
         cout<<"ofxVideoWaveTerrain warning: fewer than 2 frames available"<<endl;
+        mutex.unlock();
         return ofFloatColor();
     }
-    map<double,ofFloatPixels>::iterator it;
+    map<double,ofFloatPixels*>::iterator it;
     double t_earliest = frames.begin()->first;
     double t_latest = frames.rbegin()->first;
     if(t>t_latest){
         //cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is after latest frame at "<< t_latest <<endl;
         it = frames.end();
+        it--;
     }
     else{
         if(t<t_earliest)
@@ -344,11 +359,11 @@ ofFloatColor ofxIrregularVideoVolume::getColor(double x, double y, double t){
         it = frames.lower_bound(t);
     }
     double t_after = it->first;
-    ofFloatPixels &after = it->second;
+    ofFloatPixels &after = *(it->second);
     if(it!=frames.begin())
         it--;
     double t_before = it->first;
-    ofFloatPixels &before = it->second;
+    ofFloatPixels &before = *(it->second);
 
     double mt =0;
     double denom = t_after - t_before;

@@ -49,7 +49,7 @@ private:
 class ofxIrregularVideoVolume{
 public:
     ofxIrregularVideoVolume(int ftk, double ar);
-    void insert_frame(ofFloatPixels &frame, double t);
+    void insert_frame(ofFloatPixels *frame, double t);
     ofFloatColor getColor(double x, double y, double t);
     void setFramesToKeep(int);
 	void setAspectRatio(double);
@@ -58,7 +58,7 @@ public:
 private:
     double aspect_ratio;
     int frames_to_keep;
-    map<double,ofFloatPixels> frames;
+    map<double,ofFloatPixels*> frames;
     ofMutex mutex; //make the volume thread safe
 };
 
@@ -91,7 +91,7 @@ class ofxVideoWaveTerrain{
 public:
 	ofxVideoWaveTerrain(int ftk, int sr, double del);
 	~ofxVideoWaveTerrain();
-    void insert_frame(ofFloatPixels &frame);
+    void insert_frame(ofFloatPixels *frame);
 	void audioOut(float *output, int bufferSize, int nChannels);
 	void draw(int x, int y, int w, int h);
 	double getElapsedTime();
