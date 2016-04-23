@@ -30,7 +30,7 @@
 #include "ofMain.h"
 #include <array>
 
-//quick and dirty 2d ring buffer
+//quick and dirty multichannel ring buffer
 template <unsigned int C, unsigned int L>
 class ofxDelayLine{
 public:
@@ -49,7 +49,7 @@ private:
 class ofxIrregularVideoVolume{
 public:
     ofxIrregularVideoVolume(int ftk, double ar);
-    void insert_frame(ofFloatPixels *frame, double t);
+    void insert_frame(shared_ptr<ofFloatPixels> frame, double t);
     ofFloatColor getColor(double x, double y, double t);
     void setFramesToKeep(int);
 	void setAspectRatio(double);
@@ -58,7 +58,7 @@ public:
 private:
     double aspect_ratio;
     int frames_to_keep;
-    map<double,ofFloatPixels*> frames;
+    map<double, shared_ptr<ofFloatPixels> > frames;
     ofMutex mutex; //make the volume thread safe
 };
 
@@ -66,47 +66,55 @@ class ofxVideoWaveTerrainAgent{
     typedef vector<ofPoint> curve;
     //using curve = vector<ofPoint>;
 public:
-    ofxVideoWaveTerrainAgent(double rate, double jitter, double momentum_time, double comb_freq, double rot, ofFloatColor c, ofBlendMode b);
+    ofxVideoWaveTerrainAgent();
     void draw(int x, int y, int w, int h);
     void init();
     void update(ofFloatColor color, double sample_rate, double aspect_ratio);
-    void setJitter(double);
-    void setRate(double);
+    void randomColorWithAlpha(double alpha);
+    void randomRotation();
+    //void setJitter(double);
+    // void setRate(double);
     void setMomentumTime(double);
-    void setCombFrequency(double);
+    // void setCombFrequencyP(double);
+    // void setColor(ofFloatColor);
+    // void setRotation(double);
+    // void setBlendMode(ofBlendMode);
+    double rate, jitter, rotation, comb_freq_v, comb_freq_p, comb_fb_v, comb_fb_p;
+    int sample_rate;
     ofPoint p,v,lp,peak;
     ofFloatColor color;
-private:
-    double rate, jitter, momentum_time, rotation, comb_freq;
     ofBlendMode blend_mode;
+private:
     vector<curve> history[2]; //two buffers of curves: one to write to in audio thread, one to read from in video thread
     ofxDelayLine<2, 48000> v_history;
     ofxDelayLine<2, 48000> p_history;
     int cur_hist;
+    double epsilon;
     ofMutex mutex; //agents are accessed from the video and audio threads
 };
 
 class ofxVideoWaveTerrain{
     //add frames with any timestamp, query pixels at any time
 public:
-	ofxVideoWaveTerrain(int ftk, int sr, double del);
+	ofxVideoWaveTerrain(size_t n_agents, size_t ftk, size_t sr, double del);
 	~ofxVideoWaveTerrain();
-    void insert_frame(ofFloatPixels *frame);
+    void insert_frame(shared_ptr<ofFloatPixels> frame);
 	void audioOut(float *output, int bufferSize, int nChannels);
 	void draw(int x, int y, int w, int h);
 	double getElapsedTime();
-	void setMomentumTime(double);
+	void setMomentumTime(double x, double scale = 1);
 	void setAudioDelay(double);
-	void setAgentRate(double);
-	void setAgentCombFrequency(double);
+	void setAgentRate(double x, double scale = 1);
+	void setAgentCombFrequencyP(double x, double scale = 1);
+    void setAgentCombFrequencyV(double x, double scale = 1);
+    void setAgentCombFeedbackP(double);
+    void setAgentCombFeedbackV(double);
 	void setPathJitter(double);
 	void scramble();
 	ofxIrregularVideoVolume* getVideoVolume();
 private:
     double audio_delay, elapsed_time; //in seconds
-    //double base_agent_rate; //in Hz
     int sample_rate; //in Hz
-    double agent_rate_scale;
     vector<ofxVideoWaveTerrainAgent*> agents;
     ofxIrregularVideoVolume *ivv;
     ofMutex mutex; //needed to make elapsed_time thread safe
