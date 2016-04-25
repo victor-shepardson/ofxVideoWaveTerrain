@@ -177,7 +177,7 @@ void ofxVideoWaveTerrainAgent::init(){
     cur_hist = 0;
     history[0][0].push_back(p);
     mutex.unlock();
-    randomColorWithAlpha(.5);
+    randomColorWithAlpha(1.);
     randomRotation();
 }
 void ofxVideoWaveTerrainAgent::draw(int x, int y, int w, int h){
@@ -305,7 +305,10 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double 
 }
 
 void ofxVideoWaveTerrainAgent::randomColorWithAlpha(double alpha){
-    color = ofFloatColor(ofRandom(1.), ofRandom(1.), ofRandom(1.), alpha);
+    ofVec3f c(ofRandom(-1, 1.), ofRandom(-1., 1.), ofRandom(-1., 1.));
+    c.scale(.5);
+    c+=.5;
+    color = ofFloatColor(c[0], c[1], c[2], alpha);
     blend_mode = OF_BLENDMODE_ALPHA;
 }
 
@@ -341,6 +344,9 @@ void ofxVideoWaveTerrainAgent::setMomentumTime(double momentum_time){
 ofxIrregularVideoVolume::ofxIrregularVideoVolume(int ftk, double ar){
     frames_to_keep = ftk;
     aspect_ratio = ar;
+    t_last_warned = 0.;
+    t_cache_after = -1;
+    t_cache_before = 0;
 }
 
 void ofxIrregularVideoVolume::insert_frame(shared_ptr<ofFloatPixels> frame, double t){
@@ -367,64 +373,82 @@ void ofxIrregularVideoVolume::insert_frame(shared_ptr<ofFloatPixels> frame, doub
     //cout<< "earliest: "<<frames.begin()->first<<", latest: "<<frames.end()->first<<endl;
 }
 
-ofFloatColor ofxIrregularVideoVolume::getColor(double x, double y, double t){
     //trilinear interpolation of the video volume at x,y,t
     // x,y in normalized coordinates (0-1), t in seconds
-    mutex.lock();
-     if(frames.size()<2){
-        cout<<"ofxVideoWaveTerrain warning: fewer than 2 frames available"<<endl;
-        mutex.unlock();
-        return ofFloatColor();
-    }
-    map<double,shared_ptr<ofFloatPixels> >::iterator it;
-    double t_earliest = frames.begin()->first;
-    double t_latest = frames.rbegin()->first;
-    if(t>t_latest){
-        //cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is after latest frame at "<< t_latest <<endl;
-        it = frames.end();
-        it--;
-    }
-    else{
-        if(t<t_earliest)
-            if(t>=0) cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is before earliest frame at "<< t_earliest <<endl;
-        it = frames.lower_bound(t);
-    }
-    double t_after = it->first;
-    ofFloatPixels &after = *(it->second);
-    if(it!=frames.begin())
-        it--;
-    double t_before = it->first;
-    ofFloatPixels &before = *(it->second);
+ofFloatColor ofxIrregularVideoVolume::getColor(double x, double y, double t){
 
-    double mt =0;
-    double denom = t_after - t_before;
+    //in the common case that the bounding frames have not changed, skip all the lookups
+    if(t<t_cache_before || t>t_cache_after){
+        mutex.lock();
+        if(frames.size()<2){
+            cout<<"ofxVideoWaveTerrain warning: fewer than 2 frames available"<<endl;
+            mutex.unlock();
+            return ofFloatColor();
+        }
+        map<double,shared_ptr<ofFloatPixels> >::iterator it;
+        double t_earliest = frames.begin()->first;
+        double t_latest = frames.rbegin()->first;
+        bool warn = t-t_last_warned > .1;
+        if(t>t_latest){
+            if(warn)
+                cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is after latest frame at "<< t_latest <<endl;
+            it = frames.end();
+            it--;
+            t_last_warned = t;
+        }
+        else{
+            if(t>=0 && t<t_earliest && warn)
+                cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is before earliest frame at "<<t_earliest <<endl;
+            it = frames.lower_bound(t);
+        }
+        t_cache_after = it->first;
+        pix_cache_after = it->second;
+        if(it!=frames.begin())
+            it--;
+        t_cache_before = it->first;
+        pix_cache_before = it->second;
+
+        //now that we've got shared_ptrs to the pixels we can unlock,
+        //they won't be deleted even if they are removed from the video volume,
+        //until they are replaced in the cache
+        mutex.unlock();
+    }
+
+    double mt = 0;
+    double denom = t_cache_after - t_cache_before;
     if(denom>0)
-        mt = (t - t_before)/denom;
-    int bw = before.getWidth();
-    int bh = before.getHeight();
+        mt = (t - t_cache_before)/denom;
+    return getColorFromFrames(x,y,mt,pix_cache_before,pix_cache_after);
+
+}
+
+ofFloatColor ofxIrregularVideoVolume::getColorFromFrames(double x, double y, double mt, shared_ptr<ofFloatPixels> before, shared_ptr<ofFloatPixels> after){
+    int bw = before->getWidth();
+    int bh = before->getHeight();
     int lxb = int(x*bw)%bw;
     int lyb = int(y*bh)%bh;
     double mxb = x*bw - int(x*bw);
     double myb = y*bh - int(y*bh);
     int uxb = int(1+x*bw)%bw;
     int uyb = int(1+y*bh)%bh;
-    int aw = after.getWidth();
-    int ah = after.getHeight();
+    int aw = after->getWidth();
+    int ah = after->getHeight();
     int lxa = int(x*aw)%aw;
     int lya = int(y*ah)%ah;
     int uxa = int(1+x*aw)%aw;
     int uya = int(1+y*ah)%ah;
     double mxa = x*aw - int(x*aw);
     double mya = y*ah - int(y*ah);
-    ofFloatColor before_lower = before.getColor(lxb, lyb).getLerped(before.getColor(uxb, lyb), mxb);
-    ofFloatColor before_upper = before.getColor(lxb, uyb).getLerped(before.getColor(uxb, uyb), mxb);
-    ofFloatColor after_lower = after.getColor(lxa, lya).getLerped(after.getColor(uxa, lya), mxa);
-    ofFloatColor after_upper = after.getColor(lxa, uya).getLerped(after.getColor(uxa, uya), mxa);
-    mutex.unlock();
+    ofFloatColor before_lower = before->getColor(lxb, lyb).getLerped(before->getColor(uxb, lyb), mxb);
+    ofFloatColor before_upper = before->getColor(lxb, uyb).getLerped(before->getColor(uxb, uyb), mxb);
+    ofFloatColor after_lower = after->getColor(lxa, lya).getLerped(after->getColor(uxa, lya), mxa);
+    ofFloatColor after_upper = after->getColor(lxa, uya).getLerped(after->getColor(uxa, uya), mxa);
+    //mutex.unlock();
     ofFloatColor before_ = before_lower.getLerped(before_upper, myb);
     ofFloatColor after_ = after_lower.getLerped(after_upper, mya);
     return before_.getLerped(after_, mt);
 }
+
 int ofxIrregularVideoVolume::getFramesToKeep(){
     return frames_to_keep;
 }

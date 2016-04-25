@@ -56,7 +56,9 @@ public:
 	int getFramesToKeep();
 	double getAspectRatio();
 private:
-    double aspect_ratio;
+    ofFloatColor getColorFromFrames(double, double, double, shared_ptr<ofFloatPixels>, shared_ptr<ofFloatPixels>);
+    double aspect_ratio, t_last_warned, t_cache_before, t_cache_after;
+    shared_ptr<ofFloatPixels> pix_cache_before, pix_cache_after;
     int frames_to_keep;
     map<double, shared_ptr<ofFloatPixels> > frames;
     ofMutex mutex; //make the volume thread safe
