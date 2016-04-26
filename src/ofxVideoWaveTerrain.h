@@ -29,15 +29,25 @@
 
 #include "ofMain.h"
 #include <array>
+#include <atomic>
 
 //quick and dirty multichannel ring buffer
 template <unsigned int C, unsigned int L>
 class ofxDelayLine{
 public:
-    ofxDelayLine();
-    void insert(const array<double, C> v);
-    double get(unsigned int t, unsigned int c);
-    array<double, C> get(unsigned int t);
+    ofxDelayLine(){
+        head = 0;
+    }
+    void insert(const array<double, C> v){
+        head = (head+1)%L;
+        d[head] = v;
+    }
+    double get(unsigned int t, unsigned int c){
+        return d[(head-t+L)%L][c%C];
+    }
+    array<double, C> get(unsigned int t){
+        return d[(head-t+L)%L];
+    }
 private:
     unsigned int head;
     array< array<double, C>, L > d;
@@ -49,15 +59,17 @@ private:
 class ofxIrregularVideoVolume{
 public:
     ofxIrregularVideoVolume(int ftk, double ar);
-    void insert_frame(shared_ptr<ofFloatPixels> frame, double t);
+    void insert_frame(shared_ptr<ofFloatPixels> &frame, double t);
     ofFloatColor getColor(double x, double y, double t);
     void setFramesToKeep(int);
-	void setAspectRatio(double);
-	int getFramesToKeep();
-	double getAspectRatio();
+	void setAspectRatio(double x){ aspect_ratio = x; }
+	int getFramesToKeep(){ return frames_to_keep; }
+	double getAspectRatio(){ return aspect_ratio; }
 private:
-    ofFloatColor getColorFromFrames(double, double, double, shared_ptr<ofFloatPixels>, shared_ptr<ofFloatPixels>);
-    double aspect_ratio, t_last_warned, t_cache_before, t_cache_after;
+    ofFloatColor getColorFromFrames(double, double, double, shared_ptr<ofFloatPixels>&, shared_ptr<ofFloatPixels>&);
+    ofFloatColor getColorFromFrame(double, double, shared_ptr<ofFloatPixels>&);
+    double t_last_warned, t_cache_before, t_cache_after;
+    atomic<double> aspect_ratio;
     shared_ptr<ofFloatPixels> pix_cache_before, pix_cache_after;
     int frames_to_keep;
     map<double, shared_ptr<ofFloatPixels> > frames;
@@ -74,14 +86,8 @@ public:
     void update(ofFloatColor color, double sample_rate, double aspect_ratio);
     void randomColorWithAlpha(double alpha);
     void randomRotation();
-    //void setJitter(double);
-    // void setRate(double);
     void setMomentumTime(double);
-    // void setCombFrequencyP(double);
-    // void setColor(ofFloatColor);
-    // void setRotation(double);
-    // void setBlendMode(ofBlendMode);
-    double rate, jitter, rotation, comb_freq_v, comb_freq_p, comb_fb_v, comb_fb_p;
+    atomic<double> rate, jitter, rotation, comb_freq_v, comb_freq_p, comb_fb_v, comb_fb_p;
     int sample_rate;
     ofPoint p,v,lp,peak;
     ofFloatColor color;
@@ -92,7 +98,7 @@ private:
     ofxDelayLine<2, 48000> p_history;
     int cur_hist;
     double epsilon;
-    ofMutex mutex; //agents are accessed from the video and audio threads
+    ofMutex mutex; //agents are accessed from the video and audio threads, need to lock around history
 };
 
 class ofxVideoWaveTerrain{
@@ -100,10 +106,11 @@ class ofxVideoWaveTerrain{
 public:
 	ofxVideoWaveTerrain(size_t n_agents, size_t ftk, size_t sr, double del);
 	~ofxVideoWaveTerrain();
-    void insert_frame(shared_ptr<ofFloatPixels> frame);
+    void insert_frame(shared_ptr<ofFloatPixels> &frame);
 	void audioOut(float *output, int bufferSize, int nChannels);
 	void draw(int x, int y, int w, int h);
-	double getElapsedTime();
+	double getElapsedTime(){ return elapsed_time; }
+    double getAudioDelay(){ return audio_delay; }
 	void setMomentumTime(double x, double scale = 1);
 	void setAudioDelay(double);
 	void setAgentRate(double x, double scale = 1);
@@ -113,11 +120,13 @@ public:
     void setAgentCombFeedbackV(double);
 	void setPathJitter(double);
 	void scramble();
-	ofxIrregularVideoVolume* getVideoVolume();
+	ofxIrregularVideoVolume* getVideoVolume(){ return ivv; }
 private:
-    double audio_delay, elapsed_time; //in seconds
-    int sample_rate; //in Hz
+    atomic<double> audio_delay, elapsed_time; //in seconds
+    atomic<uint32_t> sample_rate; //in Hz
+    
     vector<ofxVideoWaveTerrainAgent*> agents;
     ofxIrregularVideoVolume *ivv;
-    ofMutex mutex; //needed to make elapsed_time thread safe
+    // ofMutex mutex; //thread safety is outsourced to ofxIrregularVideoVolume and ofxVideoWaveTerrainAgent,
+    //  except for a few atomics
 };

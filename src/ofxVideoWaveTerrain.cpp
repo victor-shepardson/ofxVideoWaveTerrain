@@ -1,27 +1,6 @@
 #include "ofxVideoWaveTerrain.h"
 
-#include <xmmintrin.h>
-
-template<unsigned int C, unsigned int L>
-ofxDelayLine<C, L>::ofxDelayLine(){
-    head = 0;
-}
-
-template<unsigned int C, unsigned int L>
-void ofxDelayLine<C, L>::insert(const array<double, C> v){
-    head = (head+1)%L;
-    d[head] = v;
-}
-
-template<unsigned int C, unsigned int L>
-double ofxDelayLine<C, L>::get(unsigned int t, unsigned int c){
-    return d[(head-t+L)%L][c%C];
-}
-
-template<unsigned int C, unsigned int L>
-array<double, C> ofxDelayLine<C, L>::get(unsigned int t){
-    return d[(head-t+L)%L];
-}
+// #include <xmmintrin.h>
 
 ofxVideoWaveTerrain::~ofxVideoWaveTerrain(){
     delete ivv;
@@ -31,7 +10,7 @@ ofxVideoWaveTerrain::~ofxVideoWaveTerrain(){
 
 ofxVideoWaveTerrain::ofxVideoWaveTerrain(size_t n_agents=16, size_t ftk=48, size_t sr=48000, double del=.2){
 
-    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+    // _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
 
     ivv = new ofxIrregularVideoVolume(ftk, 1);
 
@@ -49,24 +28,21 @@ ofxVideoWaveTerrain::ofxVideoWaveTerrain(size_t n_agents=16, size_t ftk=48, size
 
 //call from the audio thread
 void ofxVideoWaveTerrain::audioOut(float * output, int bufferSize, int nChannels){
+    if(!output)
+        return;
     if(nChannels>2){
         cout<<"ofxVideoWaveTerrain error: more than 2 audio channels not supported"<<endl;
         nChannels = 2;
     }
-    //trace the agent's path sample by sample and use x and y to index a sinusoidal wave table
+    double gain = 1./(agents.size()*3.*2.);
     for(int i=0; i<bufferSize; i++){
-        mutex.lock();
-        elapsed_time += (1./sample_rate); //need enough delay to stay behind latest frame of video
-        mutex.unlock();
+        for(int c=0; c<nChannels; c++)
+            output[i*nChannels+c] = 0;
+
+        elapsed_time = elapsed_time + (1./sample_rate); //need enough delay to stay behind latest frame of video
         double t = elapsed_time - audio_delay;
         if(t<0.) continue;
 
-        if(output){
-            for(int c=0; c<nChannels; c++)
-                output[i*nChannels+c] = 0;
-        }
-
-        double gain = 1./(agents.size()*3.*2.);
         for(int j=0; j<agents.size(); j++){
             ofxVideoWaveTerrainAgent &agent = *agents[j];
 
@@ -76,12 +52,8 @@ void ofxVideoWaveTerrain::audioOut(float * output, int bufferSize, int nChannels
 
             if(output){
                 for(int c=0; c<nChannels; c++)
-                    /*output[i*nChannels+c] +=  sin(6.28318530718*agent.p[c]) *
-                        ( agent.color.r*color.r
-                        + agent.color.g*color.g
-                        + agent.color.b*color.b
-                        )*gain*/
                     output[i*nChannels+c] += agent.v[c]*gain;
+                    // output[i*nChannels+c] = sin(elapsed_time*200)*gain;
             }
         }
     }
@@ -93,17 +65,10 @@ void ofxVideoWaveTerrain::draw(int x, int y, int w, int h){
         agents[i]->draw(x,y,w,h);
 }
 
-void ofxVideoWaveTerrain::insert_frame(shared_ptr<ofFloatPixels> frame){
+void ofxVideoWaveTerrain::insert_frame(shared_ptr<ofFloatPixels> &frame){
     ivv->insert_frame(frame, elapsed_time);
 }
 
-ofxIrregularVideoVolume* ofxVideoWaveTerrain::getVideoVolume(){
-    return ivv;
-}
-
-double ofxVideoWaveTerrain::getElapsedTime(){
-    return elapsed_time;
-}
 void ofxVideoWaveTerrain::scramble(){
     for(int i=0; i<agents.size(); i++)
         agents[i]->init();
@@ -167,9 +132,9 @@ ofxVideoWaveTerrainAgent::ofxVideoWaveTerrainAgent(){
     init();
 }
 void ofxVideoWaveTerrainAgent::init(){
+    mutex.lock();
     p = ofPoint(ofRandom(0,1), ofRandom(0,1), 0);
     v = rate*ofPoint(ofRandom(-1,1), ofRandom(-1,1), 0);
-    mutex.lock();
     for(int i=0;i<2;i++){
         history[i] = vector<curve>();
         history[i].push_back(curve());
@@ -214,7 +179,7 @@ void ofxVideoWaveTerrainAgent::draw(int x, int y, int w, int h){
     ofPopStyle();
 }
 
-inline void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double sample_rate, double aspect_ratio){
+void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double sample_rate, double aspect_ratio){
     this->sample_rate = sample_rate;
 
     float h;//,s,b;
@@ -246,7 +211,7 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double 
 
 
     if(comb_fb_p != 0){
-        int samps_p = sample_rate / max(comb_freq_p, 1.);
+        int samps_p = sample_rate / max(comb_freq_p+0., 1.);
         h_p = p_history.get(samps_p);
         ofPoint toward_old_p = ofPoint(ofWrap(h_p[0]-p.x,-.5,.5), ofWrap(h_p[1]-p.y,-.5,.5));
         toward_old_p /= toward_old_p.length() + .0001;
@@ -254,7 +219,7 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double 
         new_v += comb_fb_p*toward_old_p;
     }
     if(comb_fb_v != 0){
-        int samps_v = sample_rate / max(comb_freq_v, 1.);
+        int samps_v = sample_rate / max(comb_freq_v+0., 1.);
         h_v = v_history.get(samps_v);
         ofPoint old_v = ofPoint(h_v[0], h_v[1]);
         //approach old velocity
@@ -270,15 +235,10 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double 
     //normalize after momentum
     v /= (v.length()+.0001);
 
-    //
+    //move the agent
     p += (v*(rate/sample_rate) + jit)*ofPoint(1., aspect_ratio, 0);
 
-    h_v[0] = v.x; h_v[1] = v.y;
-    v_history.insert(h_v);
-
-    h_p[0] = p.x; h_p[1] = p.y;
-    p_history.insert(h_p);
-
+    //wrap around torus
     ofPoint wrap(0);
     if(p.x>=1) wrap.x = -int(p.x);
     if(p.x<0) wrap.x = int(1-p.x);
@@ -288,8 +248,14 @@ inline void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double 
     ofPoint pre_wrap = p;
     p+=wrap;
 
-    //cout<< p.x << " " << p.y << endl;
+    //update delay lines
+    h_v[0] = v.x; h_v[1] = v.y;
+    v_history.insert(h_v);
 
+    h_p[0] = p.x; h_p[1] = p.y;
+    p_history.insert(h_p);
+
+    //update stored curves
     mutex.lock();
     vector<curve> &hist = history[cur_hist];
     curve &cur_curve = *(hist.rbegin());
@@ -308,8 +274,10 @@ void ofxVideoWaveTerrainAgent::randomColorWithAlpha(double alpha){
     ofVec3f c(ofRandom(-1, 1.), ofRandom(-1., 1.), ofRandom(-1., 1.));
     c.scale(.5);
     c+=.5;
+    mutex.lock();
     color = ofFloatColor(c[0], c[1], c[2], alpha);
     blend_mode = OF_BLENDMODE_ALPHA;
+    mutex.unlock();
 }
 
 void ofxVideoWaveTerrainAgent::randomRotation(){
@@ -349,7 +317,7 @@ ofxIrregularVideoVolume::ofxIrregularVideoVolume(int ftk, double ar){
     t_cache_before = 0;
 }
 
-void ofxIrregularVideoVolume::insert_frame(shared_ptr<ofFloatPixels> frame, double t){
+void ofxIrregularVideoVolume::insert_frame(shared_ptr<ofFloatPixels> &frame, double t){
     //insert a new frame to the irregularly sampled video volume
     //frames must be regularly sampled ofPixels objects but can be any resolution
     //and placed irregularly in time
@@ -378,32 +346,41 @@ void ofxIrregularVideoVolume::insert_frame(shared_ptr<ofFloatPixels> frame, doub
 ofFloatColor ofxIrregularVideoVolume::getColor(double x, double y, double t){
 
     //in the common case that the bounding frames have not changed, skip all the lookups
+    //oddly seems to make little difference. something expensive in agent's update() dominating?
     if(t<t_cache_before || t>t_cache_after){
         mutex.lock();
+        bool warn = (t-t_last_warned) > .1;
         if(frames.size()<2){
-            cout<<"ofxVideoWaveTerrain warning: fewer than 2 frames available"<<endl;
+            if(warn) {
+                cout<<"ofxVideoWaveTerrain warning: fewer than 2 frames available"<<endl;
+                t_last_warned = t;
+            }
             mutex.unlock();
             return ofFloatColor();
         }
         map<double,shared_ptr<ofFloatPixels> >::iterator it;
         double t_earliest = frames.begin()->first;
         double t_latest = frames.rbegin()->first;
-        bool warn = t-t_last_warned > .1;
         if(t>t_latest){
-            if(warn)
+            if(warn){
                 cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is after latest frame at "<< t_latest <<endl;
-            it = frames.end();
-            it--;
-            t_last_warned = t;
+                t_last_warned = t;
+            }
+            //if t is past the end, `after` should be the last element
+            it = --(frames.end());
         }
         else{
-            if(t>=0 && t<t_earliest && warn)
+            if(t>=0 && t<t_earliest && warn){
                 cout<< "ofxVideoWaveTerrain warning: time "<<t<<" is before earliest frame at "<<t_earliest <<endl;
+                t_last_warned = t;
+            }
+            //otherwise, `after` should be first element (at or) after t
             it = frames.lower_bound(t);
         }
         t_cache_after = it->first;
         pix_cache_after = it->second;
-        if(it!=frames.begin())
+        //unless `after` is the first element or t is past the end, `before` should be immediately before it
+        if(it!=frames.begin() && t<= t_latest)
             it--;
         t_cache_before = it->first;
         pix_cache_before = it->second;
@@ -422,48 +399,33 @@ ofFloatColor ofxIrregularVideoVolume::getColor(double x, double y, double t){
 
 }
 
-ofFloatColor ofxIrregularVideoVolume::getColorFromFrames(double x, double y, double mt, shared_ptr<ofFloatPixels> before, shared_ptr<ofFloatPixels> after){
-    int bw = before->getWidth();
-    int bh = before->getHeight();
-    int lxb = int(x*bw)%bw;
-    int lyb = int(y*bh)%bh;
-    double mxb = x*bw - int(x*bw);
-    double myb = y*bh - int(y*bh);
-    int uxb = int(1+x*bw)%bw;
-    int uyb = int(1+y*bh)%bh;
-    int aw = after->getWidth();
-    int ah = after->getHeight();
-    int lxa = int(x*aw)%aw;
-    int lya = int(y*ah)%ah;
-    int uxa = int(1+x*aw)%aw;
-    int uya = int(1+y*ah)%ah;
-    double mxa = x*aw - int(x*aw);
-    double mya = y*ah - int(y*ah);
-    ofFloatColor before_lower = before->getColor(lxb, lyb).getLerped(before->getColor(uxb, lyb), mxb);
-    ofFloatColor before_upper = before->getColor(lxb, uyb).getLerped(before->getColor(uxb, uyb), mxb);
-    ofFloatColor after_lower = after->getColor(lxa, lya).getLerped(after->getColor(uxa, lya), mxa);
-    ofFloatColor after_upper = after->getColor(lxa, uya).getLerped(after->getColor(uxa, uya), mxa);
-    //mutex.unlock();
-    ofFloatColor before_ = before_lower.getLerped(before_upper, myb);
-    ofFloatColor after_ = after_lower.getLerped(after_upper, mya);
-    return before_.getLerped(after_, mt);
+ofFloatColor ofxIrregularVideoVolume::getColorFromFrames(double x, double y, double mt, shared_ptr<ofFloatPixels> &before, shared_ptr<ofFloatPixels> &after){
+    ofFloatColor before_ = getColorFromFrame(x,y,before);
+    const ofFloatColor after_ = getColorFromFrame(x,y,after);
+    return before_.lerp(after_, mt);
 }
 
-int ofxIrregularVideoVolume::getFramesToKeep(){
-    return frames_to_keep;
+ofFloatColor ofxIrregularVideoVolume::getColorFromFrame(double x, double y, shared_ptr<ofFloatPixels> &pix){
+    const double pc = .5;
+    const int w = pix->getWidth();
+    const int h = pix->getHeight();
+    const int lx = int(x*w+w-pc)%w;
+    const int ly = int(y*h+h-pc)%h;
+    const int gx = int(x*w+1-pc)%w;
+    const int gy = int(y*h+1-pc)%h;
+    const float mx = x*w-pc - floor(x*w-pc);
+    const float my = y*h-pc - floor(y*h-pc);
+
+    ofFloatColor lower = pix->getColor(lx, ly).lerp(pix->getColor(gx, ly), mx);
+    const ofFloatColor upper = pix->getColor(lx, gy).lerp(pix->getColor(gx, gy), mx);
+
+    return lower.lerp(upper, my);
 }
-double ofxIrregularVideoVolume::getAspectRatio(){
-    return aspect_ratio;
-}
+
 void ofxIrregularVideoVolume::setFramesToKeep(int x){
     mutex.lock();
     frames_to_keep = x;
     while(frames.size()>frames_to_keep)
         frames.erase(frames.begin());
-    mutex.unlock();
-}
-void ofxIrregularVideoVolume::setAspectRatio(double x){
-    mutex.lock();
-    aspect_ratio = x;
     mutex.unlock();
 }
