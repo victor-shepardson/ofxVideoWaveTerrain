@@ -129,58 +129,60 @@ ofxVideoWaveTerrainAgent::ofxVideoWaveTerrainAgent(){
     comb_fb_v = 0;
     color = ofFloatColor(.5, .5, .5, 1.);
     blend_mode = OF_BLENDMODE_DISABLED;
+    rotate_flag = false;
     init();
 }
 void ofxVideoWaveTerrainAgent::init(){
-    mutex.lock();
     p = ofPoint(ofRandom(0,1), ofRandom(0,1), 0);
     v = rate*ofPoint(ofRandom(-1,1), ofRandom(-1,1), 0);
     for(int i=0;i<2;i++){
-        history[i] = vector<curve>();
-        history[i].push_back(curve());
+        history[i] = ofMesh();
+        history[i].setMode(OF_PRIMITIVE_LINE_STRIP);
+        history[i].getVertices().reserve(96000);
+        history[i].getColors().reserve(96000);
     }
     cur_hist = 0;
-    history[0][0].push_back(p);
-    mutex.unlock();
-    randomColorWithAlpha(1.);
+    randomColorWithAlpha(.333);
+    history[0].addVertex(p);
+    history[0].addColor(color);
     randomRotation();
 }
+
 void ofxVideoWaveTerrainAgent::draw(int x, int y, int w, int h){
 	//draw agent path as line segments
 
-    mutex.lock();
-    //swap agent path buffers
-    const vector<curve> &hist_to_draw = history[cur_hist];
-    ofPoint temp = *(hist_to_draw.rbegin()->rbegin()); //last point of last curve
-    cur_hist = 1-cur_hist;
-    history[cur_hist].clear();
-    curve c;
-    c.push_back(temp);
-    history[cur_hist].push_back(c);
-    mutex.unlock();
+    //in case draw() gets called before the audio thread switches buffers
+    if(rotate_flag) return;
 
     ofPushStyle();
     ofNoFill();
     ofSetColor(color);
     ofEnableBlendMode(blend_mode);
-    //ofSetLineWidth(32);
+    //ofSetLineWidth(32); //doesn't work, why?
     ofPushMatrix();
     ofScale(w,h);
     ofTranslate(x,y);
-    for(int i=0; i<hist_to_draw.size(); i++){
-        if(hist_to_draw[i].size()>1){
-            ofMesh(OF_PRIMITIVE_LINE_STRIP, hist_to_draw[i]).draw();
-            //ofBeginShape();
-            //ofVertices(hist_to_draw[i]);
-            //ofEndShape();
-        }
-    }
+    //draw the back buffer
+    history[1-cur_hist].draw();
     ofPopMatrix();
     ofPopStyle();
+
+    //rotate_flag is guaranteed to be false here, so we can clear the back buffer without disturbing the audio thread
+    history[1-cur_hist].clear();
+
+    rotate_flag = true;
+    //now the audio thread wills switch the buffers, and in the case that draw() fires again before it has done so, it'll just drop a frame
 }
 
 void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double sample_rate, double aspect_ratio){
-    this->sample_rate = sample_rate;
+    this->sample_rate = sample_rate; //keep an internal sample rate (agents need to know it)
+
+    if(rotate_flag){
+        cur_hist = 1-cur_hist;
+        history[cur_hist].addVertex(p);
+        history[cur_hist].addColor(color);
+        rotate_flag = false;
+    }
 
     float h;//,s,b;
     //color.getHsb(h,s,b);
@@ -255,29 +257,29 @@ void ofxVideoWaveTerrainAgent::update(ofFloatColor terrain_color, double sample_
     h_p[0] = p.x; h_p[1] = p.y;
     p_history.insert(h_p);
 
+    ofFloatColor invisible = ofFloatColor(0,0,0,0);
+
     //update stored curves
-    mutex.lock();
-    vector<curve> &hist = history[cur_hist];
-    curve &cur_curve = *(hist.rbegin());
-    cur_curve.push_back(pre_wrap);
-    if(p!=pre_wrap){ //if wrapping around the torus occurred, start a new curve
-        curve new_curve;
-        ofPoint unwrapped = *(cur_curve.rbegin()) + wrap;
-        new_curve.push_back(unwrapped);
-        new_curve.push_back(p);
-        hist.push_back(new_curve); //start a new segment; note that this invalidates reference cur_curve
+    history[cur_hist].addVertex(pre_wrap);
+    history[cur_hist].addColor(color);
+    if(p!=pre_wrap){ //if wrapping around the torus occurred, add invisible points
+        history[cur_hist].addVertex(pre_wrap);
+        history[cur_hist].addColor(invisible);
+        history[cur_hist].addVertex(p);
+        history[cur_hist].addColor(invisible);
+        history[cur_hist].addVertex(p);
+        history[cur_hist].addColor(color);
     }
-    mutex.unlock();
 }
 
 void ofxVideoWaveTerrainAgent::randomColorWithAlpha(double alpha){
     ofVec3f c(ofRandom(-1, 1.), ofRandom(-1., 1.), ofRandom(-1., 1.));
     c.scale(.5);
     c+=.5;
-    mutex.lock();
+    // mutex.lock();
     color = ofFloatColor(c[0], c[1], c[2], alpha);
     blend_mode = OF_BLENDMODE_ALPHA;
-    mutex.unlock();
+    // mutex.unlock();
 }
 
 void ofxVideoWaveTerrainAgent::randomRotation(){
@@ -302,11 +304,11 @@ void ofxVideoWaveTerrainAgent::setCombFrequency(double x){
 }
 */
 void ofxVideoWaveTerrainAgent::setMomentumTime(double momentum_time){
-    mutex.lock();
+    // mutex.lock();
     epsilon = 1;
     if(momentum_time>0)
         epsilon = 1.-pow(2, -1./(sample_rate*momentum_time*.001));
-    mutex.unlock();
+    // mutex.unlock();
 }
 
 ofxIrregularVideoVolume::ofxIrregularVideoVolume(int ftk, double ar){

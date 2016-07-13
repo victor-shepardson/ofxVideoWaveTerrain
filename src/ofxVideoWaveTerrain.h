@@ -25,6 +25,7 @@
 // - agents catch themselves up, then sleep for a few ms
 // - central data structure can keep track of latencies so a good delay can be chosen
 
+
 #pragma once
 
 #include "ofMain.h"
@@ -76,9 +77,15 @@ private:
     ofMutex mutex; //make the volume thread safe
 };
 
+
+   //the video thread should do all memory allocation and there should be no locks, only atomics
+
+    //double buffering:
+    //update() adds vertex/color pairs to mesh A
+    //draw() draws mesh B, clears it, sets rotate_flag
+    //update() checks rotate_flag and if set switches A/B
+    //draw() checks rotate_flag, does nothing if already set
 class ofxVideoWaveTerrainAgent{
-    typedef vector<ofPoint> curve;
-    //using curve = vector<ofPoint>;
 public:
     ofxVideoWaveTerrainAgent();
     void draw(int x, int y, int w, int h);
@@ -93,13 +100,16 @@ public:
     ofFloatColor color;
     ofBlendMode blend_mode;
 private:
-    vector<curve> history[2]; //two buffers of curves: one to write to in audio thread, one to read from in video thread
+    ofMesh history[2]; //two meshes: one to write to in audio thread, one to read from in video thread
     ofxDelayLine<2, 48000> v_history;
     ofxDelayLine<2, 48000> p_history;
     int cur_hist;
     double epsilon;
+    bool rotate_flag;
     ofMutex mutex; //agents are accessed from the video and audio threads, need to lock around history
 };
+
+
 
 class ofxVideoWaveTerrain{
     //add frames with any timestamp, query pixels at any time
